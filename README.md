@@ -12,6 +12,12 @@ Schauspieler-Übersicht für **Jellyfin 12**, gefiltert auf fest konfigurierte L
 https://agentcooper75.github.io/jellyfin-plugin-actors/manifest.json
 ```
 
+Fallback (falls Pages noch baut):
+
+```text
+https://raw.githubusercontent.com/agentcooper75/jellyfin-plugin-actors/gh-pages/manifest.json
+```
+
 4. **Katalog** öffnen → **Actors** installieren
 5. Jellyfin **einmal neu starten**
 6. **Dashboard → Plugins → Actors → Einstellungen** → Libraries anhaken → Speichern
