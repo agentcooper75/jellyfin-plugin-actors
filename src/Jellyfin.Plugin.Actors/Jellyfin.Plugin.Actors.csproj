@@ -26,8 +26,12 @@
   <ItemGroup>
     <None Remove="Configuration\config.html" />
     <EmbeddedResource Include="Configuration\config.html" />
+    <None Remove="Configuration\actors-config.js" />
+    <EmbeddedResource Include="Configuration\actors-config.js" />
     <None Remove="Web\actors.html" />
     <EmbeddedResource Include="Web\actors.html" />
+    <None Remove="Web\actors.js" />
+    <EmbeddedResource Include="Web\actors.js" />
   </ItemGroup>
 
 </Project>

@@ -37,12 +37,24 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
         yield return new PluginPageInfo
         {
+            Name = "actors-config.js",
+            EmbeddedResourcePath = $"{prefix}.Configuration.actors-config.js"
+        };
+
+        yield return new PluginPageInfo
+        {
             Name = "actors",
             DisplayName = "Schauspieler",
             EmbeddedResourcePath = $"{prefix}.Web.actors.html",
             EnableInMainMenu = true,
             MenuSection = "server",
             MenuIcon = "person"
+        };
+
+        yield return new PluginPageInfo
+        {
+            Name = "actors.js",
+            EmbeddedResourcePath = $"{prefix}.Web.actors.js"
         };
     }
 }
