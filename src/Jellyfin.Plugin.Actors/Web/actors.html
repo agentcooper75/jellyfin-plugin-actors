@@ -2,6 +2,9 @@
 <html>
 <head>
     <title>Schauspieler</title>
+</head>
+<body>
+<div id="actorsBrowsePage" data-role="page" class="page libraryPage actors-page">
     <style>
         .actors-page { padding: 1rem 1.25rem 2rem; }
         .actors-header {
@@ -65,11 +68,33 @@
             width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 10px;
             background: rgba(255,255,255,0.06);
         }
-        .hidden { display: none !important; }
+        .actors-lib-panel {
+            margin: 0 0 1.25rem; padding: 1rem 1.1rem; border-radius: 12px;
+            background: rgba(255,255,255,0.05); max-width: 720px;
+        }
+        .actors-lib-panel h2 { margin: 0 0 0.5rem; font-size: 1.15rem; }
+        .actors-lib-panel .desc { opacity: 0.75; margin: 0 0 1rem; line-height: 1.4; }
+        .actors-lib-list { display: flex; flex-direction: column; gap: 0.45rem; margin: 0 0 1rem; }
+        .actors-lib-row {
+            display: flex; align-items: center; gap: 0.75rem;
+            padding: 0.65rem 0.8rem; border-radius: 8px;
+            background: rgba(255,255,255,0.04); cursor: pointer;
+        }
+        .actors-lib-row:hover { background: rgba(255,255,255,0.07); }
+        .actors-lib-row input[type="checkbox"] {
+            width: 1.15rem; height: 1.15rem; flex-shrink: 0; cursor: pointer;
+        }
+        .actors-lib-row .lib-type { opacity: 0.6; margin-left: 0.35rem; }
+        .actors-lib-actions { display: flex; gap: 0.65rem; flex-wrap: wrap; }
+        .actors-lib-actions button {
+            min-height: 2.2rem; padding: 0.4rem 0.9rem; border-radius: 6px; border: 0;
+            cursor: pointer; font: inherit; color: inherit;
+            background: rgba(255,255,255,0.12);
+        }
+        .actors-lib-actions .primary { background: #00a4dc; color: #fff; }
+        .actors-lib-status { margin-top: 0.75rem; opacity: 0.9; min-height: 1.2em; }
+        .actors-hidden { display: none !important; }
     </style>
-</head>
-<body>
-<div id="actorsBrowsePage" data-role="page" class="page libraryPage actors-page">
     <div data-role="content">
         <div class="content-primary">
             <div id="actorsListView">
@@ -84,8 +109,25 @@
                         <button type="button" id="actorsConfigLink">Libraries festlegen</button>
                     </div>
                 </div>
+
+                <div id="actorsLibPanel" class="actors-lib-panel actors-hidden">
+                    <h2>Libraries</h2>
+                    <p class="desc">
+                        Nur ausgewählte Libraries fließen in die Übersicht ein.
+                        Ohne Auswahl bleibt die Liste leer.
+                    </p>
+                    <div class="actors-lib-list" id="actorsLibraryList">
+                        <p>Lade Libraries…</p>
+                    </div>
+                    <div class="actors-lib-actions">
+                        <button type="button" class="primary" id="actorsLibSaveBtn">Speichern &amp; Index neu aufbauen</button>
+                        <button type="button" id="actorsLibCancelBtn">Schließen</button>
+                    </div>
+                    <div class="actors-lib-status" id="actorsLibStatus"></div>
+                </div>
+
                 <div class="actors-meta" id="actorsMeta"></div>
-                <div class="actors-empty hidden" id="actorsEmpty"></div>
+                <div class="actors-empty actors-hidden" id="actorsEmpty"></div>
                 <div class="actors-grid" id="actorsGrid"></div>
                 <div class="actors-pager" id="actorsPager">
                     <button type="button" id="actorsPrev">Zurück</button>
@@ -94,7 +136,7 @@
                 </div>
             </div>
 
-            <div id="actorsDetailView" class="hidden">
+            <div id="actorsDetailView" class="actors-hidden">
                 <button type="button" class="filmography-back" id="actorsBackBtn">← Zurück</button>
                 <div class="actors-header">
                     <h1 id="actorsDetailTitle">Filmografie</h1>
@@ -107,6 +149,7 @@
 </div>
 <script>
 (function () {
+    var pluginId = '7c2e9a41-5f8b-4d3e-9a1c-0b6e8f2a4c10';
     var state = {
         startIndex: 0,
         limit: 50,
@@ -114,7 +157,8 @@
         searchTerm: '',
         sortBy: 'Name',
         searchTimer: null,
-        loadedOnce: false
+        loadedOnce: false,
+        libPanelOpen: false
     };
 
     function client() { return window.ApiClient; }
@@ -128,7 +172,20 @@
     function escapeHtml(value) {
         return String(value == null ? '' : value)
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function escapeAttr(value) {
+        return escapeHtml(value).replace(/\n/g, '');
+    }
+
+    function normalizeId(value) {
+        return String(value == null ? '' : value).replace(/-/g, '').toLowerCase();
+    }
+
+    function setHashRoute(path) {
+        var clean = String(path || '').replace(/^#?\/?/, '');
+        window.location.hash = '#/' + clean;
     }
 
     function navigateTo(name) {
@@ -136,16 +193,15 @@
         try {
             if (window.Dashboard && typeof Dashboard.navigate === 'function') {
                 Dashboard.navigate(path);
+                setTimeout(function () {
+                    if (window.location.hash.indexOf('name=' + name) === -1) {
+                        setHashRoute(path);
+                    }
+                }, 50);
                 return;
             }
         } catch (e) {}
-        try {
-            if (window.Emby && Emby.Page && typeof Emby.Page.show === 'function') {
-                Emby.Page.show('/' + path);
-                return;
-            }
-        } catch (e2) {}
-        window.location.hash = '#!/' + path;
+        setHashRoute(path);
     }
 
     function imageUrl(itemId, tag) {
@@ -157,19 +213,120 @@
     }
 
     function showList() {
-        document.getElementById('actorsListView').classList.remove('hidden');
-        document.getElementById('actorsDetailView').classList.add('hidden');
+        document.getElementById('actorsListView').classList.remove('actors-hidden');
+        document.getElementById('actorsDetailView').classList.add('actors-hidden');
     }
 
     function showDetail() {
-        document.getElementById('actorsListView').classList.add('hidden');
-        document.getElementById('actorsDetailView').classList.remove('hidden');
+        document.getElementById('actorsListView').classList.add('actors-hidden');
+        document.getElementById('actorsDetailView').classList.remove('actors-hidden');
+    }
+
+    function setLibStatus(text) {
+        var el = document.getElementById('actorsLibStatus');
+        if (el) el.textContent = text || '';
+    }
+
+    function setLibPanelOpen(open) {
+        state.libPanelOpen = !!open;
+        var panel = document.getElementById('actorsLibPanel');
+        if (!panel) return;
+        panel.classList.toggle('actors-hidden', !state.libPanelOpen);
+        if (state.libPanelOpen) {
+            loadLibraryPanel();
+        }
+    }
+
+    function fetchLibraries(api) {
+        var url = api.getUrl('Actors/Libraries');
+        if (typeof api.getJSON === 'function') {
+            return api.getJSON(url);
+        }
+        return api.ajax({ type: 'GET', url: url, dataType: 'json' });
+    }
+
+    function loadLibraryPanel() {
+        var api = client();
+        var list = document.getElementById('actorsLibraryList');
+        if (!api || !list) return Promise.resolve();
+
+        setLibStatus('');
+        list.innerHTML = '<p>Lade Libraries…</p>';
+
+        return Promise.all([
+            api.getPluginConfiguration(pluginId),
+            fetchLibraries(api)
+        ]).then(function (results) {
+            var config = results[0] || {};
+            var libraries = results[1] || [];
+            var includedIds = prop(config, 'IncludedLibraryIds', 'includedLibraryIds') || [];
+            var included = {};
+            includedIds.forEach(function (id) { included[normalizeId(id)] = true; });
+
+            if (!libraries.length) {
+                list.innerHTML = '<p>Keine Libraries gefunden.</p>';
+                return;
+            }
+
+            list.innerHTML = libraries.map(function (lib, index) {
+                var id = prop(lib, 'Id', 'id') || '';
+                var name = prop(lib, 'Name', 'name') || id;
+                var type = prop(lib, 'CollectionType', 'collectionType') || '';
+                var isIncluded = included[normalizeId(id)] || !!prop(lib, 'Included', 'included');
+                var inputId = 'actors_browse_lib_' + index;
+                return '<label class="actors-lib-row" for="' + inputId + '">' +
+                    '<input type="checkbox" class="actors-lib-check" id="' + inputId +
+                    '" data-id="' + escapeAttr(id) + '"' + (isIncluded ? ' checked' : '') + ' />' +
+                    '<span class="lib-label">' + escapeHtml(name) +
+                    (type ? '<span class="lib-type">(' + escapeHtml(type) + ')</span>' : '') +
+                    '</span></label>';
+            }).join('');
+        }).catch(function (err) {
+            console.error('[Actors] loadLibraryPanel failed', err);
+            list.innerHTML = '<p>Libraries konnten nicht geladen werden.</p>';
+        });
+    }
+
+    function saveLibraries() {
+        var api = client();
+        if (!api) return Promise.resolve();
+
+        var checks = Array.prototype.slice.call(document.querySelectorAll('#actorsLibraryList .actors-lib-check'));
+        var ids = checks.filter(function (c) { return c.checked; }).map(function (c) {
+            return c.getAttribute('data-id');
+        });
+
+        setLibStatus('Speichere…');
+        return api.getPluginConfiguration(pluginId).then(function (config) {
+            config.IncludedLibraryIds = ids;
+            config.includedLibraryIds = ids;
+            return api.updatePluginConfiguration(pluginId, config);
+        }).then(function () {
+            setLibStatus('Baue Index neu…');
+            var url = api.getUrl('Actors/Libraries/RefreshMapping') + '?reason=browse-save';
+            if (typeof api.ajax === 'function') {
+                return api.ajax({ type: 'POST', url: url });
+            }
+            return fetch(url, {
+                method: 'POST',
+                headers: api.getRequestHeaders ? api.getRequestHeaders() : {}
+            });
+        }).then(function () {
+            setLibStatus(ids.length
+                ? 'Gespeichert. Index aktualisiert (' + ids.length + ' Libraries).'
+                : 'Gespeichert. Keine Library gewählt — Übersicht bleibt leer.');
+            state.startIndex = 0;
+            return loadActors();
+        }).catch(function (err) {
+            console.error('[Actors] saveLibraries failed', err);
+            setLibStatus('Fehler beim Speichern. Details in der Browser-Konsole.');
+        });
     }
 
     function loadActors() {
         var c = client();
         if (!c) {
-            document.getElementById('actorsEmpty').classList.remove('hidden');
+            document.getElementById('actorsEmpty').classList.remove('actors-hidden');
             document.getElementById('actorsEmpty').textContent = 'ApiClient nicht verfügbar.';
             return Promise.resolve();
         }
@@ -192,16 +349,16 @@
             var items = prop(data, 'Items', 'items') || [];
 
             if (!hasConfigured) {
-                empty.classList.remove('hidden');
+                empty.classList.remove('actors-hidden');
                 empty.innerHTML = '<strong>Keine Libraries ausgewählt.</strong><br/>' +
                     'Klicke oben auf <em>Libraries festlegen</em> und speichere mindestens eine Library.';
                 grid.innerHTML = '';
                 meta.textContent = '';
-                document.getElementById('actorsPager').classList.add('hidden');
+                document.getElementById('actorsPager').classList.add('actors-hidden');
                 return;
             }
 
-            empty.classList.add('hidden');
+            empty.classList.add('actors-hidden');
             meta.textContent = state.total + ' Schauspieler' +
                 (synced ? ' · Index: ' + new Date(synced).toLocaleString() : '');
 
@@ -230,7 +387,7 @@
             document.getElementById('actorsPageLabel').textContent = 'Seite ' + page + ' / ' + pages;
             document.getElementById('actorsPrev').disabled = state.startIndex <= 0;
             document.getElementById('actorsNext').disabled = state.startIndex + state.limit >= state.total;
-            document.getElementById('actorsPager').classList.toggle('hidden', state.total <= state.limit);
+            document.getElementById('actorsPager').classList.toggle('actors-hidden', state.total <= state.limit);
 
             Array.prototype.forEach.call(grid.querySelectorAll('.actor-card'), function (btn) {
                 btn.addEventListener('click', function () {
@@ -239,7 +396,7 @@
             });
         }).catch(function (err) {
             console.error('[Actors] loadActors failed', err);
-            document.getElementById('actorsEmpty').classList.remove('hidden');
+            document.getElementById('actorsEmpty').classList.remove('actors-hidden');
             document.getElementById('actorsEmpty').textContent = 'Schauspieler konnten nicht geladen werden.';
         });
     }
@@ -293,13 +450,19 @@
     }
 
     function navigateDetails(id) {
+        var path = 'details?id=' + encodeURIComponent(id);
         try {
             if (window.Dashboard && typeof Dashboard.navigate === 'function') {
-                Dashboard.navigate('details?id=' + encodeURIComponent(id));
+                Dashboard.navigate(path);
+                setTimeout(function () {
+                    if (window.location.hash.indexOf('details') === -1) {
+                        setHashRoute(path);
+                    }
+                }, 50);
                 return;
             }
         } catch (e) {}
-        window.location.hash = '#!/details?id=' + encodeURIComponent(id);
+        setHashRoute(path);
     }
 
     function bind() {
@@ -355,7 +518,26 @@
             configLink._actorsBound = true;
             configLink.addEventListener('click', function (e) {
                 e.preventDefault();
-                navigateTo('actors-config');
+                e.stopPropagation();
+                setLibPanelOpen(!state.libPanelOpen);
+            });
+        }
+
+        var saveBtn = document.getElementById('actorsLibSaveBtn');
+        if (saveBtn && !saveBtn._actorsBound) {
+            saveBtn._actorsBound = true;
+            saveBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                saveLibraries();
+            });
+        }
+
+        var cancelBtn = document.getElementById('actorsLibCancelBtn');
+        if (cancelBtn && !cancelBtn._actorsBound) {
+            cancelBtn._actorsBound = true;
+            cancelBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                setLibPanelOpen(false);
             });
         }
     }

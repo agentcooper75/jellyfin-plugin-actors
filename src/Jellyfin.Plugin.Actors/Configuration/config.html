@@ -2,6 +2,9 @@
 <html>
 <head>
     <title>Actors</title>
+</head>
+<body>
+<div id="actorsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage actorsConfigurationPage" data-require="emby-button">
     <style>
         .actors-config { max-width: 720px; padding: 0.5rem 0 1.5rem; }
         .actors-config h2 { margin-top: 0; }
@@ -27,9 +30,6 @@
         .actors-actions .secondary { background: rgba(255,255,255,0.12); color: inherit; }
         .actors-status { margin-top: 1rem; opacity: 0.9; min-height: 1.2em; }
     </style>
-</head>
-<body>
-<div id="actorsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage actorsConfigurationPage" data-require="emby-button">
     <div data-role="content">
         <div class="content-primary actors-config">
             <h2>Actors</h2>
@@ -72,21 +72,25 @@
         return String(value == null ? '' : value).replace(/-/g, '').toLowerCase();
     }
 
+    function setHashRoute(path) {
+        var clean = String(path || '').replace(/^#?\/?/, '');
+        window.location.hash = '#/' + clean;
+    }
+
     function navigateTo(name) {
         var path = 'configurationpage?name=' + encodeURIComponent(name);
         try {
             if (window.Dashboard && typeof Dashboard.navigate === 'function') {
                 Dashboard.navigate(path);
+                setTimeout(function () {
+                    if (window.location.hash.indexOf('name=' + name) === -1) {
+                        setHashRoute(path);
+                    }
+                }, 50);
                 return;
             }
         } catch (e) {}
-        try {
-            if (window.Emby && Emby.Page && typeof Emby.Page.show === 'function') {
-                Emby.Page.show('/' + path);
-                return;
-            }
-        } catch (e2) {}
-        window.location.hash = '#!/' + path;
+        setHashRoute(path);
     }
 
     function fetchLibraries(api) {
