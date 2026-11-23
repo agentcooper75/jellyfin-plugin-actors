@@ -1,0 +1,15 @@
+name: "Actors"
+guid: "7c2e9a41-5f8b-4d3e-9a1c-0b6e8f2a4c10"
+version: "1.0.0.1"
+targetAbi: "12.0.0.0"
+framework: "net10.0"
+owner: "jellyView"
+overview: "Browse actors from selected libraries only."
+description: "Schauspieler-Übersicht, gefiltert auf fest konfigurierte Libraries."
+category: "General"
+changelog: |-
+  - Library-filtered actor overview for Jellyfin 12
+  - Config page with native checkboxes (Jellyfin 12 web)
+  - Catalog/repository packaging
+artifacts:
+  - Jellyfin.Plugin.Actors.dll

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Schauspieler</title>
+    <style>
+        .actors-page { padding: 1rem 1.25rem 2rem; }
+        .actors-header {
+            display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;
+            justify-content: space-between; margin-bottom: 1rem;
+        }
+        .actors-header h1 { margin: 0; font-size: 1.6rem; }
+        .actors-toolbar { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; }
+        .actors-toolbar input[type="search"],
+        .actors-toolbar select,
+        .actors-toolbar button {
+            min-height: 2.2rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(0,0,0,0.25); color: inherit; padding: 0.35rem 0.65rem; font: inherit;
+        }
+        .actors-toolbar button { cursor: pointer; background: rgba(255,255,255,0.12); border: 0; }
+        .actors-toolbar input[type="search"] { min-width: 220px; }
+        .actors-meta { opacity: 0.7; margin-bottom: 1rem; font-size: 0.9rem; }
+        .actors-empty {
+            padding: 2rem; border-radius: 12px; background: rgba(255,255,255,0.04);
+            max-width: 640px; line-height: 1.45;
+        }
+        .actors-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 1rem;
+        }
+        .actor-card {
+            display: flex; flex-direction: column; gap: 0.45rem; cursor: pointer;
+            text-align: center; background: transparent; border: 0; color: inherit; padding: 0;
+        }
+        .actor-card:focus-visible { outline: 2px solid #00a4dc; outline-offset: 3px; }
+        .actor-poster {
+            width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 10px;
+            background: rgba(255,255,255,0.06);
+        }
+        .actor-poster.placeholder {
+            display: flex; align-items: center; justify-content: center; font-size: 2rem; opacity: 0.45;
+        }
+        .actor-name { font-weight: 600; line-height: 1.25; }
+        .actor-count { opacity: 0.65; font-size: 0.85rem; }
+        .actors-pager { display: flex; gap: 0.75rem; align-items: center; margin-top: 1.25rem; }
+        .actors-pager button {
+            min-height: 2.2rem; padding: 0.35rem 0.8rem; border-radius: 6px; border: 0;
+            background: rgba(255,255,255,0.12); color: inherit; cursor: pointer; font: inherit;
+        }
+        .actors-pager button:disabled { opacity: 0.4; cursor: default; }
+        .filmography-back {
+            margin-bottom: 1rem; min-height: 2.2rem; padding: 0.35rem 0.8rem; border-radius: 6px;
+            border: 0; background: rgba(255,255,255,0.12); color: inherit; cursor: pointer; font: inherit;
+        }
+        .filmography-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 1rem;
+        }
+        .film-card {
+            display: flex; flex-direction: column; gap: 0.4rem; cursor: pointer;
+            text-align: left; background: transparent; border: 0; color: inherit; padding: 0;
+        }
+        .film-poster {
+            width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 10px;
+            background: rgba(255,255,255,0.06);
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+<div id="actorsBrowsePage" data-role="page" class="page libraryPage actors-page">
+    <div data-role="content">
+        <div class="content-primary">
+            <div id="actorsListView">
+                <div class="actors-header">
+                    <h1>Schauspieler</h1>
+                    <div class="actors-toolbar">
+                        <input type="search" id="actorsSearch" placeholder="Suche…" />
+                        <select id="actorsSort">
+                            <option value="Name">Name</option>
+                            <option value="ItemCount">Anzahl Titel</option>
+                        </select>
+                        <button type="button" id="actorsConfigLink">Libraries festlegen</button>
+                    </div>
+                </div>
+                <div class="actors-meta" id="actorsMeta"></div>
+                <div class="actors-empty hidden" id="actorsEmpty"></div>
+                <div class="actors-grid" id="actorsGrid"></div>
+                <div class="actors-pager" id="actorsPager">
+                    <button type="button" id="actorsPrev">Zurück</button>
+                    <span id="actorsPageLabel"></span>
+                    <button type="button" id="actorsNext">Weiter</button>
+                </div>
+            </div>
+
+            <div id="actorsDetailView" class="hidden">
+                <button type="button" class="filmography-back" id="actorsBackBtn">← Zurück</button>
+                <div class="actors-header">
+                    <h1 id="actorsDetailTitle">Filmografie</h1>
+                </div>
+                <div class="actors-meta" id="actorsDetailMeta"></div>
+                <div class="filmography-grid" id="filmographyGrid"></div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    var state = {
+        startIndex: 0,
+        limit: 50,
+        total: 0,
+        searchTerm: '',
+        sortBy: 'Name',
+        searchTimer: null,
+        loadedOnce: false
+    };
+
+    function client() { return window.ApiClient; }
+
+    function prop(obj, pascal, camel) {
+        if (!obj) return undefined;
+        if (obj[pascal] !== undefined) return obj[pascal];
+        return obj[camel];
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function navigateTo(name) {
+        var path = 'configurationpage?name=' + encodeURIComponent(name);
+        try {
+            if (window.Dashboard && typeof Dashboard.navigate === 'function') {
+                Dashboard.navigate(path);
+                return;
+            }
+        } catch (e) {}
+        try {
+            if (window.Emby && Emby.Page && typeof Emby.Page.show === 'function') {
+                Emby.Page.show('/' + path);
+                return;
+            }
+        } catch (e2) {}
+        window.location.hash = '#!/' + path;
+    }
+
+    function imageUrl(itemId, tag) {
+        if (!itemId) return '';
+        var c = client();
+        var url = c.getUrl('Items/' + itemId + '/Images/Primary');
+        if (tag) url += '?tag=' + encodeURIComponent(tag);
+        return url;
+    }
+
+    function showList() {
+        document.getElementById('actorsListView').classList.remove('hidden');
+        document.getElementById('actorsDetailView').classList.add('hidden');
+    }
+
+    function showDetail() {
+        document.getElementById('actorsListView').classList.add('hidden');
+        document.getElementById('actorsDetailView').classList.remove('hidden');
+    }
+
+    function loadActors() {
+        var c = client();
+        if (!c) {
+            document.getElementById('actorsEmpty').classList.remove('hidden');
+            document.getElementById('actorsEmpty').textContent = 'ApiClient nicht verfügbar.';
+            return Promise.resolve();
+        }
+
+        var params = {
+            startIndex: state.startIndex,
+            limit: state.limit,
+            sortBy: state.sortBy
+        };
+        if (state.searchTerm) params.searchTerm = state.searchTerm;
+
+        return c.getJSON(c.getUrl('Actors', params)).then(function (data) {
+            state.loadedOnce = true;
+            state.total = prop(data, 'TotalRecordCount', 'totalRecordCount') || 0;
+            var meta = document.getElementById('actorsMeta');
+            var empty = document.getElementById('actorsEmpty');
+            var grid = document.getElementById('actorsGrid');
+            var hasConfigured = prop(data, 'HasConfiguredLibraries', 'hasConfiguredLibraries');
+            var synced = prop(data, 'LibraryMappingLastSyncedUtc', 'libraryMappingLastSyncedUtc');
+            var items = prop(data, 'Items', 'items') || [];
+
+            if (!hasConfigured) {
+                empty.classList.remove('hidden');
+                empty.innerHTML = '<strong>Keine Libraries ausgewählt.</strong><br/>' +
+                    'Klicke oben auf <em>Libraries festlegen</em> und speichere mindestens eine Library.';
+                grid.innerHTML = '';
+                meta.textContent = '';
+                document.getElementById('actorsPager').classList.add('hidden');
+                return;
+            }
+
+            empty.classList.add('hidden');
+            meta.textContent = state.total + ' Schauspieler' +
+                (synced ? ' · Index: ' + new Date(synced).toLocaleString() : '');
+
+            if (!items.length) {
+                grid.innerHTML = '<p>Keine Treffer.</p>';
+            } else {
+                grid.innerHTML = items.map(function (actor) {
+                    var id = prop(actor, 'Id', 'id');
+                    var name = prop(actor, 'Name', 'name') || '';
+                    var tag = prop(actor, 'PrimaryImageTag', 'primaryImageTag');
+                    var count = prop(actor, 'ItemCount', 'itemCount') || 0;
+                    var img = imageUrl(id, tag);
+                    var poster = img
+                        ? '<img class="actor-poster" loading="lazy" src="' + escapeHtml(img) + '" alt="" />'
+                        : '<div class="actor-poster placeholder">👤</div>';
+                    return '<button type="button" class="actor-card" data-id="' + escapeHtml(id) + '">' +
+                        poster +
+                        '<div class="actor-name">' + escapeHtml(name) + '</div>' +
+                        '<div class="actor-count">' + count + ' Titel</div>' +
+                        '</button>';
+                }).join('');
+            }
+
+            var page = Math.floor(state.startIndex / state.limit) + 1;
+            var pages = Math.max(1, Math.ceil(state.total / state.limit));
+            document.getElementById('actorsPageLabel').textContent = 'Seite ' + page + ' / ' + pages;
+            document.getElementById('actorsPrev').disabled = state.startIndex <= 0;
+            document.getElementById('actorsNext').disabled = state.startIndex + state.limit >= state.total;
+            document.getElementById('actorsPager').classList.toggle('hidden', state.total <= state.limit);
+
+            Array.prototype.forEach.call(grid.querySelectorAll('.actor-card'), function (btn) {
+                btn.addEventListener('click', function () {
+                    openActor(btn.getAttribute('data-id'));
+                });
+            });
+        }).catch(function (err) {
+            console.error('[Actors] loadActors failed', err);
+            document.getElementById('actorsEmpty').classList.remove('hidden');
+            document.getElementById('actorsEmpty').textContent = 'Schauspieler konnten nicht geladen werden.';
+        });
+    }
+
+    function openActor(personId) {
+        var c = client();
+        showDetail();
+        document.getElementById('actorsDetailTitle').textContent = 'Lade…';
+        document.getElementById('filmographyGrid').innerHTML = '';
+
+        return c.getJSON(c.getUrl('Actors/' + personId + '/Items')).then(function (data) {
+            document.getElementById('actorsDetailTitle').textContent = prop(data, 'Name', 'name') || 'Filmografie';
+            document.getElementById('actorsDetailMeta').textContent =
+                (prop(data, 'TotalRecordCount', 'totalRecordCount') || 0) + ' Titel in den gewählten Libraries';
+
+            var items = prop(data, 'Items', 'items') || [];
+            var grid = document.getElementById('filmographyGrid');
+            if (!items.length) {
+                grid.innerHTML = '<p>Keine Titel.</p>';
+                return;
+            }
+
+            grid.innerHTML = items.map(function (item) {
+                var id = prop(item, 'Id', 'id');
+                var name = prop(item, 'Name', 'name') || '';
+                var type = prop(item, 'Type', 'type') || '';
+                var year = prop(item, 'ProductionYear', 'productionYear');
+                var tag = prop(item, 'PrimaryImageTag', 'primaryImageTag');
+                var img = imageUrl(id, tag);
+                var yearLabel = year ? ' (' + year + ')' : '';
+                var poster = img
+                    ? '<img class="film-poster" loading="lazy" src="' + escapeHtml(img) + '" alt="" />'
+                    : '<div class="film-poster"></div>';
+                return '<button type="button" class="film-card" data-id="' + escapeHtml(id) + '">' +
+                    poster +
+                    '<div class="actor-name">' + escapeHtml(name) + yearLabel + '</div>' +
+                    '<div class="actor-count">' + escapeHtml(type) + '</div>' +
+                    '</button>';
+            }).join('');
+
+            Array.prototype.forEach.call(grid.querySelectorAll('.film-card'), function (btn) {
+                btn.addEventListener('click', function () {
+                    var id = btn.getAttribute('data-id');
+                    navigateDetails(id);
+                });
+            });
+        }).catch(function (err) {
+            console.error('[Actors] openActor failed', err);
+            document.getElementById('actorsDetailMeta').textContent = 'Filmografie konnte nicht geladen werden.';
+        });
+    }
+
+    function navigateDetails(id) {
+        try {
+            if (window.Dashboard && typeof Dashboard.navigate === 'function') {
+                Dashboard.navigate('details?id=' + encodeURIComponent(id));
+                return;
+            }
+        } catch (e) {}
+        window.location.hash = '#!/details?id=' + encodeURIComponent(id);
+    }
+
+    function bind() {
+        var search = document.getElementById('actorsSearch');
+        if (search && !search._actorsBound) {
+            search._actorsBound = true;
+            search.addEventListener('input', function (e) {
+                clearTimeout(state.searchTimer);
+                state.searchTimer = setTimeout(function () {
+                    state.searchTerm = e.target.value.trim();
+                    state.startIndex = 0;
+                    loadActors();
+                }, 250);
+            });
+        }
+
+        var sort = document.getElementById('actorsSort');
+        if (sort && !sort._actorsBound) {
+            sort._actorsBound = true;
+            sort.addEventListener('change', function (e) {
+                state.sortBy = e.target.value;
+                state.startIndex = 0;
+                loadActors();
+            });
+        }
+
+        var prev = document.getElementById('actorsPrev');
+        if (prev && !prev._actorsBound) {
+            prev._actorsBound = true;
+            prev.addEventListener('click', function () {
+                state.startIndex = Math.max(0, state.startIndex - state.limit);
+                loadActors();
+            });
+        }
+
+        var next = document.getElementById('actorsNext');
+        if (next && !next._actorsBound) {
+            next._actorsBound = true;
+            next.addEventListener('click', function () {
+                state.startIndex = state.startIndex + state.limit;
+                loadActors();
+            });
+        }
+
+        var back = document.getElementById('actorsBackBtn');
+        if (back && !back._actorsBound) {
+            back._actorsBound = true;
+            back.addEventListener('click', showList);
+        }
+
+        var configLink = document.getElementById('actorsConfigLink');
+        if (configLink && !configLink._actorsBound) {
+            configLink._actorsBound = true;
+            configLink.addEventListener('click', function (e) {
+                e.preventDefault();
+                navigateTo('actors-config');
+            });
+        }
+    }
+
+    function init() {
+        bind();
+        showList();
+        loadActors();
+    }
+
+    var page = document.getElementById('actorsBrowsePage');
+    if (page) {
+        page.addEventListener('viewshow', init);
+        page.addEventListener('pageshow', init);
+    }
+    setTimeout(function () {
+        if (!state.loadedOnce) init();
+    }, 80);
+})();
+</script>
+</body>
+</html>

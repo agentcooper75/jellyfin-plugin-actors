@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Actors</title>
+    <style>
+        .actors-config { max-width: 720px; padding: 0.5rem 0 1.5rem; }
+        .actors-config h2 { margin-top: 0; }
+        .actors-config .desc { opacity: 0.8; margin-bottom: 1.25rem; line-height: 1.45; }
+        .actors-lib-list { display: flex; flex-direction: column; gap: 0.5rem; margin: 1rem 0 1.5rem; }
+        .actors-lib-row {
+            display: flex; align-items: center; gap: 0.75rem;
+            padding: 0.75rem 0.9rem; border-radius: 8px;
+            background: rgba(255,255,255,0.04); cursor: pointer;
+        }
+        .actors-lib-row:hover { background: rgba(255,255,255,0.07); }
+        .actors-lib-row input[type="checkbox"] {
+            width: 1.15rem; height: 1.15rem; flex-shrink: 0; cursor: pointer;
+        }
+        .actors-lib-row .lib-label { flex: 1; }
+        .actors-lib-row .lib-type { opacity: 0.6; margin-left: 0.35rem; }
+        .actors-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+        .actors-actions button {
+            min-height: 2.4rem; padding: 0.55rem 1rem; border-radius: 6px;
+            border: 0; cursor: pointer; font: inherit;
+        }
+        .actors-actions .primary { background: #00a4dc; color: #fff; }
+        .actors-actions .secondary { background: rgba(255,255,255,0.12); color: inherit; }
+        .actors-status { margin-top: 1rem; opacity: 0.9; min-height: 1.2em; }
+    </style>
+</head>
+<body>
+<div id="actorsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage actorsConfigurationPage" data-require="emby-button">
+    <div data-role="content">
+        <div class="content-primary actors-config">
+            <h2>Actors</h2>
+            <p class="desc">
+                Wähle die Libraries, die die Schauspieler-Übersicht füttern.
+                Ohne Auswahl bleibt die Übersicht leer — absichtlich, damit Dokus/Kids nicht mitmischen.
+            </p>
+
+            <div class="actors-lib-list" id="actorsLibraryList">
+                <p>Lade Libraries…</p>
+            </div>
+
+            <div class="actors-actions">
+                <button type="button" class="primary" id="actorsSaveBtn">Speichern &amp; Index neu aufbauen</button>
+                <button type="button" class="secondary" id="actorsOpenBtn">Übersicht öffnen</button>
+            </div>
+            <div class="actors-status" id="actorsStatus"></div>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    var pluginId = '7c2e9a41-5f8b-4d3e-9a1c-0b6e8f2a4c10';
+    var loaded = false;
+
+    function client() { return window.ApiClient; }
+
+    function setStatus(text) {
+        var el = document.getElementById('actorsStatus');
+        if (el) el.textContent = text || '';
+    }
+
+    function prop(obj, pascal, camel) {
+        if (!obj) return undefined;
+        if (obj[pascal] !== undefined) return obj[pascal];
+        return obj[camel];
+    }
+
+    function normalizeId(value) {
+        return String(value == null ? '' : value).replace(/-/g, '').toLowerCase();
+    }
+
+    function navigateTo(name) {
+        var path = 'configurationpage?name=' + encodeURIComponent(name);
+        try {
+            if (window.Dashboard && typeof Dashboard.navigate === 'function') {
+                Dashboard.navigate(path);
+                return;
+            }
+        } catch (e) {}
+        try {
+            if (window.Emby && Emby.Page && typeof Emby.Page.show === 'function') {
+                Emby.Page.show('/' + path);
+                return;
+            }
+        } catch (e2) {}
+        window.location.hash = '#!/' + path;
+    }
+
+    function fetchLibraries(api) {
+        var url = api.getUrl('Actors/Libraries');
+        if (typeof api.getJSON === 'function') {
+            return api.getJSON(url);
+        }
+        return api.ajax({ type: 'GET', url: url, dataType: 'json' });
+    }
+
+    function loadConfig() {
+        var api = client();
+        if (!api) {
+            document.getElementById('actorsLibraryList').innerHTML =
+                '<p>ApiClient nicht verfügbar. Bitte Seite neu laden.</p>';
+            return Promise.resolve();
+        }
+
+        setStatus('');
+        return Promise.all([
+            api.getPluginConfiguration(pluginId),
+            fetchLibraries(api)
+        ]).then(function (results) {
+            var config = results[0] || {};
+            var libraries = results[1] || [];
+            var includedIds = prop(config, 'IncludedLibraryIds', 'includedLibraryIds') || [];
+            var included = {};
+            includedIds.forEach(function (id) { included[normalizeId(id)] = true; });
+
+            var list = document.getElementById('actorsLibraryList');
+            if (!libraries.length) {
+                list.innerHTML = '<p>Keine Libraries gefunden.</p>';
+                loaded = true;
+                return;
+            }
+
+            list.innerHTML = libraries.map(function (lib, index) {
+                var id = prop(lib, 'Id', 'id') || '';
+                var name = prop(lib, 'Name', 'name') || id;
+                var type = prop(lib, 'CollectionType', 'collectionType') || '';
+                var isIncluded = included[normalizeId(id)] || !!prop(lib, 'Included', 'included');
+                var inputId = 'actors_lib_' + index;
+                return '<label class="actors-lib-row" for="' + inputId + '">' +
+                    '<input type="checkbox" class="actors-lib-check" id="' + inputId +
+                    '" data-id="' + escapeAttr(id) + '"' + (isIncluded ? ' checked' : '') + ' />' +
+                    '<span class="lib-label">' + escapeHtml(name) +
+                    (type ? '<span class="lib-type">(' + escapeHtml(type) + ')</span>' : '') +
+                    '</span></label>';
+            }).join('');
+            loaded = true;
+        }).catch(function (err) {
+            console.error('[Actors] loadConfig failed', err);
+            document.getElementById('actorsLibraryList').innerHTML =
+                '<p>Libraries konnten nicht geladen werden. Ist das Plugin aktiv und der Server neu gestartet?</p>';
+        });
+    }
+
+    function saveConfig() {
+        var api = client();
+        var checks = Array.prototype.slice.call(document.querySelectorAll('.actors-lib-check'));
+        var ids = checks.filter(function (c) { return c.checked; }).map(function (c) {
+            return c.getAttribute('data-id');
+        });
+
+        setStatus('Speichere…');
+        return api.getPluginConfiguration(pluginId).then(function (config) {
+            config.IncludedLibraryIds = ids;
+            config.includedLibraryIds = ids;
+            return api.updatePluginConfiguration(pluginId, config);
+        }).then(function () {
+            setStatus('Baue Index neu…');
+            var url = api.getUrl('Actors/Libraries/RefreshMapping') + '?reason=settings-save';
+            if (typeof api.ajax === 'function') {
+                return api.ajax({ type: 'POST', url: url });
+            }
+            return fetch(url, {
+                method: 'POST',
+                headers: api.getRequestHeaders ? api.getRequestHeaders() : {}
+            });
+        }).then(function () {
+            setStatus(ids.length
+                ? 'Gespeichert. Index aktualisiert (' + ids.length + ' Libraries).'
+                : 'Gespeichert. Keine Library gewählt — Übersicht bleibt leer.');
+            if (window.Dashboard && Dashboard.processPluginConfigurationUpdateResult) {
+                Dashboard.processPluginConfigurationUpdateResult();
+            }
+        }).catch(function (err) {
+            console.error('[Actors] saveConfig failed', err);
+            setStatus('Fehler beim Speichern. Details in der Browser-Konsole.');
+        });
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function escapeAttr(value) {
+        return escapeHtml(value).replace(/\n/g, '');
+    }
+
+    function bind() {
+        var saveBtn = document.getElementById('actorsSaveBtn');
+        var openBtn = document.getElementById('actorsOpenBtn');
+        if (saveBtn && !saveBtn._actorsBound) {
+            saveBtn._actorsBound = true;
+            saveBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                saveConfig();
+            });
+        }
+        if (openBtn && !openBtn._actorsBound) {
+            openBtn._actorsBound = true;
+            openBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                navigateTo('actors');
+            });
+        }
+    }
+
+    function init() {
+        bind();
+        if (!loaded) {
+            loadConfig();
+        }
+    }
+
+    var view = document.getElementById('actorsConfigPage');
+    if (view) {
+        view.addEventListener('viewshow', function () {
+            loaded = false;
+            init();
+        });
+        view.addEventListener('pageshow', function () {
+            loaded = false;
+            init();
+        });
+    }
+
+    // Jellyfin 12: viewshow is not always reliable for plugin pages.
+    setTimeout(init, 50);
+    setTimeout(function () {
+        if (!loaded) init();
+    }, 400);
+})();
+</script>
+</body>
+</html>

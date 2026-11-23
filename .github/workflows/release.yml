@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Resolve version
+        id: ver
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          if [[ "${TAG}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            TAG="${TAG}.0"
+          fi
+          echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+          python3 - <<PY
+          from pathlib import Path
+          import re
+          path = Path("build.yaml")
+          text = path.read_text()
+          text = re.sub(r'^version:\s*".*"', 'version: "${TAG}"', text, count=1, flags=re.M)
+          path.write_text(text)
+          print("build.yaml version set to ${TAG}")
+          PY
+
+      - name: Build package + manifest
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          chmod +x ./build.sh
+          ./build.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          ZIP="artifacts/jellyfin-plugin-actors_${VERSION}.zip"
+          NOTES="$(python3 - <<'PY'
+          import re, pathlib
+          text = pathlib.Path("build.yaml").read_text()
+          m = re.search(r'^changelog:\s*\|-\s*\n((?:  .*\n?)+)', text, re.M)
+          if not m:
+              print("Release")
+          else:
+              lines = [ln[2:] if ln.startswith("  ") else ln for ln in m.group(1).splitlines()]
+              print("\n".join(lines).strip() or "Release")
+          PY
+          )"
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release upload "v${VERSION}" "${ZIP}" --clobber
+          else
+            gh release create "v${VERSION}" "${ZIP}" \
+              --title "Actors ${VERSION}" \
+              --notes "${NOTES}"
+          fi
+
+      - name: Prepare Pages site
+        run: |
+          mkdir -p public
+          cp manifest.json public/manifest.json
+          OWNER="${{ github.repository_owner }}"
+          cat > public/index.html <<EOF
+          <!doctype html>
+          <meta charset="utf-8" />
+          <title>Actors Plugin Repository</title>
+          <h1>Jellyfin Plugin: Actors</h1>
+          <p>Add this repository URL in Jellyfin:</p>
+          <pre>https://${OWNER}.github.io/jellyfin-plugin-actors/manifest.json</pre>
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
